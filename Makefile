@@ -5,8 +5,15 @@ LIBS += -lpipewire-0.3
 LIBS += -lopus
 LIBS += -lc
 LIBS += -lm
+LIBS += -lortp
 
-all: clean build/sendt build/pipe-rx
+# all: clean build/sendt build/pipe-rx
+all: clean build/rtp_rec
+
+build/rtp_rec: src/rtp_rec.c
+	@mkdir -p build
+	$(CC) $(INCLUDES) -o build/rtp_rec.o -c $<
+	$(CC) build/rtp_rec.o $(LIBS) -o $@
 
 build/sendt: src/send-tone.c
 	@mkdir -p build
