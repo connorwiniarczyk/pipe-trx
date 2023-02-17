@@ -2,6 +2,7 @@
 #include <spa/param/audio/format-utils.h>
 #include <pipewire/pipewire.h>
 #include <opus/opus.h>
+#include <ortp/ortp.h>
 
 #include <stdio.h>
 #include <sys/socket.h>
@@ -14,9 +15,15 @@ const float pi = 3.14159265358;
 #define DEFAULT_RATE			48000
 #define DEFAULT_CHANNELS		2
 
+void ssrc_cb(RtpSession* session) {}
+
 OpusDecoder* decoder;
 uint8_t input[1024] = {0};
 int16_t decoded[2 * 5760];
+
+RtpSession* session;
+
+uint32_t timestamp = 0;
  
 typedef struct {
 	struct pw_main_loop *loop;
@@ -24,20 +31,6 @@ typedef struct {
 	double t;
 } Data;
 
-int udp_socket;
-struct sockaddr_in server_address = {0};
-
-void init_socket(char* addr, int port) {
-	udp_socket = socket(AF_INET, SOCK_DGRAM, 0); 
-
-	/* server_address = {0}; */
-	server_address.sin_family = AF_INET;
-	server_address.sin_port = htons(port);
-	server_address.sin_addr.s_addr = inet_addr(addr);
-
-	bind(udp_socket, (struct sockaddr *) &server_address, sizeof(server_address));
-}
- 
 static void on_process(void* userdata) {
 	Data* data = userdata;
 	struct pw_buffer* pipewire_buffer = pw_stream_dequeue_buffer(data -> stream);
@@ -49,10 +42,13 @@ static void on_process(void* userdata) {
 	int16_t* dest = buffer -> datas[0].data;
 	int stride = sizeof(int16_t) * DEFAULT_CHANNELS;
 
-	int nbytes = recv(udp_socket, input, 1024, 0); 
-	fprintf(stderr, "%d\n", nbytes);
+	int have_more = 1;
+
+	int nbytes = rtp_session_recv_with_ts(session, input, 1024, timestamp, &have_more);
+	if (nbytes <= 0) goto end;
 
 	int samples = opus_decode(decoder, input, nbytes, dest, 5760, 0);
+
 	fprintf(stderr, "decoded:\n");
 	if (samples < 0) { fprintf(stderr, "failed to decode: %d\n", samples); return; };
 
@@ -60,7 +56,32 @@ static void on_process(void* userdata) {
 	buffer -> datas[0].chunk->stride = stride;
 	buffer -> datas[0].chunk->size = samples * stride;
 
+end:
+	timestamp += 160;
 	pw_stream_queue_buffer(data->stream, pipewire_buffer);
+}
+
+RtpSession* init_rtp(char* address, int port) {
+	ortp_init();
+	ortp_scheduler_init();
+
+	RtpSession* session = rtp_session_new(RTP_SESSION_RECVONLY);	
+	rtp_session_set_scheduling_mode(session, false);
+	rtp_session_set_blocking_mode(session, false);
+
+	rtp_session_set_local_addr(session, address, port, -1);
+	rtp_session_set_connected_mode(session, false);
+	rtp_session_enable_adaptive_jitter_compensation(session, true);
+	rtp_session_set_jitter_compensation(session, 40);
+	rtp_session_set_time_jump_limit(session, 40 * 16);
+
+	rtp_session_set_payload_type(session, 0);
+	rtp_session_signal_connect(session,"ssrc_changed",(RtpCallback)ssrc_cb,0);
+	rtp_session_signal_connect(session,"ssrc_changed",(RtpCallback)rtp_session_reset,0);
+
+	rtp_session_enable_rtcp(session, false);
+
+	return session;
 }
 
 
@@ -101,13 +122,36 @@ void init_pipewire() {
  
  
 int main(int argc, char *argv[]) {
+	printf("a\n");
 	int err;
 	decoder = opus_decoder_create(48000, 2, &err);
 	if (err < 0) return -1;
 
-	int port = argc == 2 ? atoi(argv[1]) : 8001;
+	session = init_rtp("127.0.0.1", 8002);
+	if (session == NULL) return;
 
-	init_socket("0.0.0.0", port);
+	/* printf("b\n"); */
+
+	/* uint8_t buffer[160]; */
+
+	/* while(true) { */
+	/* 	int have_more = 1; */
+	/* 	while (have_more) { */
+	/* 		printf("c\n"); */
+	/* 		int bytes = rtp_session_recv_with_ts(session, buffer, 160, timestamp, &have_more); */
+	/* 		printf("d\n"); */
+	/* 		printf("%b\n", have_more); */
+	/* 		if (bytes > 0) { */
+	/* 			printf("received %d bytes\n", bytes); */
+	/* 			for (int i=0;i<bytes;i++) printf("%02x ", buffer[i]); */
+	/* 			printf("\n"); */
+	/* 		} else { */
+
+	/* 		} */
+
+	/* 	} */
+	/* 	timestamp += 160; */
+	/* } */
 
 	init_pipewire();
 

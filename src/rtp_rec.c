@@ -25,6 +25,7 @@ int main() {
 	/* rtp_session_set_symmetric_rtp(session, false); */
 	rtp_session_enable_adaptive_jitter_compensation(session, true);
 	rtp_session_set_jitter_compensation(session, 40);
+	rtp_session_set_time_jump_limit(session, 40 * 16);
 
 	rtp_session_set_payload_type(session, 0);
 	rtp_session_signal_connect(session,"ssrc_changed",(RtpCallback)ssrc_cb,0);

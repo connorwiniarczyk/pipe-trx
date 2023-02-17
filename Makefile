@@ -7,8 +7,8 @@ LIBS += -lc
 LIBS += -lm
 LIBS += -lortp
 
-# all: clean build/sendt build/pipe-rx
-all: clean build/rtp_rec build/sendt
+all: clean build/sendt build/pipe-rx
+# all: clean build/rtp_rec build/sendt
 
 build/rtp_rec: src/rtp_rec.c
 	@mkdir -p build
